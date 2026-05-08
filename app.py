@@ -24,7 +24,7 @@ st.divider()
 # ─── 입력 UI ──────────────────────────────────────────────────────────────────
 keyword_input = st.text_input(
     "컨셉 키워드",
-    placeholder="예: cute cafe game UI / blue cyberpunk mystery / pink gradient chemistry",
+    placeholder="예: DNA graphic, mystery UI, pink gradient  (쉼표로 구분하면 각각 검색)",
 )
 
 st.markdown("**검색 카테고리 선택**")
@@ -149,34 +149,42 @@ if run:
     if not keyword_input.strip():
         st.error("키워드를 입력해주세요.")
     else:
-        kw = keyword_input.strip()
-        keywords = kw.split()
+        # 쉼표로 구분된 키워드 그룹 파싱
+        groups = [g.strip() for g in keyword_input.split(",") if g.strip()]
+        if not groups:
+            groups = [keyword_input.strip()]
+        keywords = keyword_input.replace(",", " ").split()
 
         sections = {}
-        total = sum([use_gameui, use_concept, use_ref])
+        cats = [(use_gameui, "🎮 Game UI / Web Design", "game UI web design"),
+                (use_concept, "🎨 Concept Art / Illustration", "concept art illustration"),
+                (use_ref,     "📌 Pinterest / Reference",     "design reference inspiration")]
+        total = sum(enabled for enabled, _, _ in cats)
         done = 0
         progress = st.progress(0)
         status = st.empty()
 
-        if use_gameui:
-            status.text("🎮 Game UI / Web Design 검색 중...")
-            refs = bing_image_search(f"{kw} game UI web design")
-            sections["🎮 Game UI / Web Design"] = refs
-            done += 1; progress.progress(done / total)
+        for enabled, label, suffix in cats:
+            if not enabled:
+                continue
+            status.text(f"{label} 검색 중...")
+            all_refs = []
+            seen_imgs = set()
 
-        if use_concept:
-            status.text("🎨 Concept Art / Illustration 검색 중...")
-            refs = bing_image_search(f"{kw} concept art illustration")
-            sections["🎨 Concept Art / Illustration"] = refs
-            done += 1; progress.progress(done / total)
+            # 각 키워드 그룹을 따로 검색해서 합치기
+            per_group = max(8, 16 // len(groups))
+            for group in groups:
+                query = f"{group} {suffix}"
+                refs = bing_image_search(query, count=per_group)
+                # 중복 제거
+                for ref in refs:
+                    if ref["image_url"] not in seen_imgs:
+                        seen_imgs.add(ref["image_url"])
+                        all_refs.append(ref)
 
-        if use_ref:
-            status.text("📌 Pinterest / Reference 검색 중...")
-            refs = bing_image_search(f"{kw} design reference site:pinterest.com OR site:in.pinterest.com")
-            if not refs:
-                refs = bing_image_search(f"{kw} design reference inspiration")
-            sections["📌 Pinterest / Reference"] = refs
-            done += 1; progress.progress(done / total)
+            sections[label] = all_refs
+            done += 1
+            progress.progress(done / total)
 
         progress.empty()
         status.empty()
