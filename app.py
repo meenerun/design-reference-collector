@@ -193,48 +193,33 @@ def scrape_cssdesignawards():
 
 # ─── Claude AI 필터링 ─────────────────────────────────────────────────────────
 
-def filter_with_claude(keywords, all_refs):
-    """키워드 관련성이 높은 레퍼런스를 Claude가 선별"""
-    if not ANTHROPIC_API_KEY or not all_refs:
-        # API 없으면 랜덤 셔플로 최대 20개 반환
-        shuffled = all_refs.copy()
-        random.shuffle(shuffled)
-        return shuffled[:20]
+def score_ref(ref, keywords):
+    """제목 + URL에 키워드가 얼마나 포함됐는지 점수 계산"""
+    text = (ref.get("title", "") + " " + ref.get("url", "")).lower()
+    score = 0
+    for kw in keywords:
+        kw_lower = kw.lower()
+        if kw_lower in text:
+            score += 3
+        # 부분 일치도 점수 부여 (예: "mystery" → "myst")
+        for word in text.split("/"):
+            if kw_lower[:4] in word and len(kw_lower) >= 4:
+                score += 1
+    return score
 
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-        refs_text = "\n".join(
-            f"{i}: [{r['source']}] {r['title']} — {r['url']}"
-            for i, r in enumerate(all_refs)
-        )
+def filter_by_keywords(keywords, all_refs):
+    """키워드 점수 기반 필터링 — 점수 높은 순 + 나머지 랜덤 보충"""
+    scored = [(score_ref(ref, keywords), i, ref) for i, ref in enumerate(all_refs)]
+    scored.sort(key=lambda x: (-x[0], x[1]))
 
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Design keywords: {', '.join(keywords)}\n\n"
-                    f"From these references, return the 15 most relevant index numbers as a JSON array.\n"
-                    f"Consider title, source site, and URL path for relevance.\n"
-                    f"Return ONLY the JSON array, nothing else. Example: [0,3,7,12]\n\n"
-                    f"{refs_text}"
-                )
-            }]
-        )
+    # 점수 있는 것 우선, 나머지로 20개 채우기
+    matched = [ref for score, _, ref in scored if score > 0]
+    unmatched = [ref for score, _, ref in scored if score == 0]
+    random.shuffle(unmatched)
 
-        text = msg.content[0].text.strip()
-        start, end = text.find("["), text.rfind("]") + 1
-        indices = [i for i in __import__("json").loads(text[start:end]) if 0 <= i < len(all_refs)]
-        return [all_refs[i] for i in indices]
-
-    except Exception as e:
-        st.warning(f"AI 필터링 오류 (랜덤 선별로 대체): {e}")
-        shuffled = all_refs.copy()
-        random.shuffle(shuffled)
-        return shuffled[:20]
+    result = matched + unmatched
+    return result[:20]
 
 
 # ─── Notion ───────────────────────────────────────────────────────────────────
@@ -359,12 +344,9 @@ if run:
             st.write(f"✅ cssdesignawards.com — {len(refs)}개 수집")
 
         if all_refs:
-            if ANTHROPIC_API_KEY:
-                status.text(f"🤖 Claude AI가 {len(all_refs)}개 중 키워드 관련 레퍼런스 선별 중...")
-            else:
-                status.text("📦 레퍼런스 정리 중...")
-            all_refs = filter_with_claude(keywords, all_refs)
-            st.write(f"🤖 최종 선별: **{len(all_refs)}개**")
+            status.text(f"🔎 {len(all_refs)}개 중 키워드 관련 레퍼런스 선별 중...")
+            all_refs = filter_by_keywords(keywords, all_refs)
+            st.write(f"✅ 최종 선별: **{len(all_refs)}개**")
 
         status.text("📝 Notion 페이지 생성 중...")
         notion_url, error = create_notion_page(keywords, all_refs)
