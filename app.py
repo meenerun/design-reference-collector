@@ -11,13 +11,12 @@ PAGE_ID = "35a06261920e80e0b6c5d27d07c5c116"
 NOTION_VERSION = "2022-06-28"
 
 # ─── 검색 대상 사이트 정의 ────────────────────────────────────────────────────
-DESIGN_SITES = (
-    "site:cssdesignawards.com OR site:awwwards.com OR site:godly.website "
-    "OR site:httpster.net OR site:unsection.com OR site:interfaceingame.com "
-    "OR site:brutalistwebsites.com OR site:hoverstat.es"
-)
-
-PINTEREST_SITE = "site:pinterest.com OR site:kr.pinterest.com"
+# 키워드 검색이 실제로 작동하는 사이트만 포함
+SOURCES = {
+    "dribbble":  "site:dribbble.com",
+    "behance":   "site:behance.net",
+    "pinterest": "site:pinterest.com OR site:kr.pinterest.com OR site:in.pinterest.com",
+}
 
 # ─── 페이지 설정 ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Design Reference Collector", page_icon="🎨", layout="centered")
@@ -32,11 +31,13 @@ keyword_input = st.text_input(
     help="스페이스로 구분해서 입력하세요",
 )
 
-col1, col2 = st.columns(2)
+st.markdown("**수집할 사이트 선택**")
+col1, col2, col3 = st.columns(3)
 with col1:
-    use_design = st.checkbox("🌐 디자인 사이트", value=True,
-                              help="cssdesignawards, awwwards, godly, httpster 등")
+    use_dribbble = st.checkbox("🏀 Dribbble", value=True)
 with col2:
+    use_behance = st.checkbox("🅱 Behance", value=True)
+with col3:
     use_pinterest = st.checkbox("📌 Pinterest", value=True)
 
 run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
@@ -54,9 +55,10 @@ def ddg_search(query, max_results=15):
         return []
 
 
-def search_design_sites(keywords):
-    query = f"{' '.join(keywords)} web design UI {DESIGN_SITES}"
-    results = ddg_search(query, max_results=15)
+def search_source(keywords, source_key, max_results=12):
+    site_query = SOURCES[source_key]
+    query = f"{' '.join(keywords)} {site_query}"
+    results = ddg_search(query, max_results=max_results)
     refs = []
     seen = set()
     for r in results:
@@ -66,25 +68,6 @@ def search_design_sites(keywords):
         seen.add(url)
         refs.append({
             "source": extract_domain(url),
-            "title": r.get("title", url)[:80],
-            "url": url,
-            "image_url": r.get("image", ""),
-        })
-    return refs
-
-
-def search_pinterest(keywords):
-    query = f"{' '.join(keywords)} design inspiration {PINTEREST_SITE}"
-    results = ddg_search(query, max_results=10)
-    refs = []
-    seen = set()
-    for r in results:
-        url = r.get("url", "") or r.get("source", "")
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        refs.append({
-            "source": "pinterest.com",
             "title": r.get("title", url)[:80],
             "url": url,
             "image_url": r.get("image", ""),
@@ -130,15 +113,11 @@ def build_blocks(keywords, all_refs):
     ]
 
     site_emojis = {
+        "dribbble.com": "🏀",
+        "behance.net":  "🅱",
         "pinterest.com": "📌",
-        "awwwards.com": "🏆",
-        "cssdesignawards.com": "🎖",
-        "godly.website": "✨",
-        "httpster.net": "🌐",
-        "unsection.com": "🖼",
-        "interfaceingame.com": "🎮",
-        "brutalistwebsites.com": "🧱",
-        "hoverstat.es": "👁",
+        "in.pinterest.com": "📌",
+        "kr.pinterest.com": "📌",
     }
 
     sources = {}
@@ -197,33 +176,30 @@ if run:
         st.error("키워드를 입력해주세요.")
     elif not NOTION_TOKEN:
         st.error("NOTION_TOKEN이 설정되지 않았습니다.")
-    elif not use_design and not use_pinterest:
+    elif not any([use_dribbble, use_behance, use_pinterest]):
         st.error("최소 하나의 사이트를 선택해주세요.")
     else:
         keywords = [k.strip() for k in keyword_input.split() if k.strip()]
         st.info(f"🔍 **{', '.join(keywords)}** 키워드로 검색 시작...")
 
         all_refs = []
-        total = sum([use_design, use_pinterest])
+        selected = [("dribbble", use_dribbble, "🏀 Dribbble"),
+                    ("behance",  use_behance,  "🅱 Behance"),
+                    ("pinterest",use_pinterest,"📌 Pinterest")]
+        total = max(sum(v for _, v, _ in selected), 1)
         done = 0
         progress = st.progress(0)
         status = st.empty()
 
-        if use_design:
-            status.text("🌐 디자인 사이트 검색 중...")
-            refs = search_design_sites(keywords)
+        for source_key, enabled, label in selected:
+            if not enabled:
+                continue
+            status.text(f"{label} 검색 중...")
+            refs = search_source(keywords, source_key)
             all_refs.extend(refs)
             done += 1
             progress.progress(done / total)
-            st.write(f"✅ 디자인 사이트 — {len(refs)}개")
-
-        if use_pinterest:
-            status.text("📌 Pinterest 검색 중...")
-            refs = search_pinterest(keywords)
-            all_refs.extend(refs)
-            done += 1
-            progress.progress(done / total)
-            st.write(f"✅ Pinterest — {len(refs)}개")
+            st.write(f"✅ {label} — {len(refs)}개")
 
         if not all_refs:
             st.warning("검색 결과가 없습니다. 키워드를 바꿔서 다시 시도해보세요.")
