@@ -157,10 +157,10 @@ def show_preview(all_refs):
         for i, ref in enumerate(refs):
             with cols[i % 4]:
                 if ref.get("image_url"):
-                    try:
-                        st.image(ref["image_url"], use_container_width=True)
-                    except Exception:
-                        pass
+                    proxy = f"https://images.weserv.nl/?url={ref['image_url']}&w=400&output=webp"
+                    st.image(proxy, use_container_width=True)
+                else:
+                    st.markdown("🔗")
                 st.markdown(f"[{ref['title'][:40]}]({ref['url']})")
         st.divider()
 
