@@ -156,9 +156,9 @@ if run:
         keywords = keyword_input.replace(",", " ").split()
 
         sections = {}
-        cats = [(use_gameui, "🎮 Game UI / Web Design", "game UI web design"),
-                (use_concept, "🎨 Concept Art / Illustration", "concept art illustration"),
-                (use_ref,     "📌 Pinterest / Reference",     "design reference inspiration")]
+        cats = [(use_gameui, "🎮 Game UI / Web Design",      "game UI design dribbble behance"),
+                (use_concept, "🎨 Concept Art / Illustration", "concept art illustration artstation"),
+                (use_ref,     "📌 Pinterest / Reference",      "design inspiration mood board pinterest")]
         total = sum(enabled for enabled, _, _ in cats)
         done = 0
         progress = st.progress(0)
@@ -171,12 +171,10 @@ if run:
             all_refs = []
             seen_imgs = set()
 
-            # 각 키워드 그룹을 따로 검색해서 합치기
             per_group = max(8, 16 // len(groups))
             for group in groups:
-                query = f"{group} {suffix}"
+                query = f"{group} {suffix} 2023 2024 2025"
                 refs = bing_image_search(query, count=per_group)
-                # 중복 제거
                 for ref in refs:
                     if ref["image_url"] not in seen_imgs:
                         seen_imgs.add(ref["image_url"])
