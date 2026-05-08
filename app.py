@@ -252,7 +252,7 @@ if run:
     if not keyword_input.strip():
         st.error("키워드를 입력해주세요.")
     else:
-        keywords = [k.strip() for k in keyword_input.split() if k.strip()]
+        keywords = [k.strip() for k in keyword_input.replace(",", " ").split() if k.strip()]
         all_refs = []
 
         selected = [
