@@ -20,9 +20,10 @@ st.title("🎨 Design Reference Collector")
 st.divider()
 
 # ─── 입력 UI ──────────────────────────────────────────────────────────────────
+st.caption("키워드를 공백 또는 쉼표로 구분해 입력하세요. 2개 이상 입력 시 **모든 키워드가 포함된** 레퍼런스만 표시됩니다.")
 keyword_input = st.text_input(
     "컨셉 키워드",
-    placeholder="예: pink gradient chemistry DNA mystery UI",
+    placeholder="예: sci-fi Brutalism pink ui",
 )
 
 col1, col2, col3, col4, col5 = st.columns(5)
