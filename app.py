@@ -1,6 +1,7 @@
 import streamlit as st
-import os, time, requests
+import os, time, requests, urllib.parse
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 try:
     NOTION_TOKEN = st.secrets["NOTION_TOKEN"]
@@ -45,10 +46,31 @@ run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_
 
 # ─── DuckDuckGo 검색 ──────────────────────────────────────────────────────────
 
-def ddg_search(query, max_results=15):
+def ddg_search(query, max_results=12):
+    """DuckDuckGo HTML 검색 — API 키 불필요"""
     try:
-        from ddgs import DDGS
-        results = list(DDGS().images(query, max_results=max_results))
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+        }
+        r = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers=headers,
+            timeout=15,
+        )
+        soup = BeautifulSoup(r.text, "html.parser")
+        results = []
+        for item in soup.select(".result__body")[:max_results]:
+            title_el = item.select_one(".result__title a")
+            if not title_el:
+                continue
+            href = title_el.get("href", "")
+            if "uddg=" in href:
+                href = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
+            if not href.startswith("http"):
+                continue
+            results.append({"title": title_el.get_text(strip=True), "url": href})
         return results
     except Exception as e:
         st.warning(f"검색 오류: {e}")
@@ -62,7 +84,7 @@ def search_source(keywords, source_key, max_results=12):
     refs = []
     seen = set()
     for r in results:
-        url = r.get("url", "") or r.get("source", "")
+        url = r.get("url", "")
         if not url or url in seen:
             continue
         seen.add(url)
@@ -70,7 +92,7 @@ def search_source(keywords, source_key, max_results=12):
             "source": extract_domain(url),
             "title": r.get("title", url)[:80],
             "url": url,
-            "image_url": r.get("image", ""),
+            "image_url": None,
         })
     return refs
 
