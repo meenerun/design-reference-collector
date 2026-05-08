@@ -1,5 +1,5 @@
 import streamlit as st
-import os, time, requests, urllib.parse
+import os, time, requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 
@@ -10,165 +10,196 @@ except Exception:
 
 PAGE_ID = "35a06261920e80e0b6c5d27d07c5c116"
 NOTION_VERSION = "2022-06-28"
-
-# ─── 검색 대상 사이트 정의 ────────────────────────────────────────────────────
-# 키워드 검색이 실제로 작동하는 사이트만 포함
-SOURCES = {
-    "dribbble":  "site:dribbble.com",
-    "behance":   "site:behance.net",
-    "pinterest": "site:pinterest.com OR site:kr.pinterest.com OR site:in.pinterest.com",
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
-# ─── 페이지 설정 ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Design Reference Collector", page_icon="🎨", layout="centered")
+st.set_page_config(page_title="Design Reference Collector", page_icon="🎨", layout="wide")
 st.title("🎨 Design Reference Collector")
-st.caption("키워드를 입력하면 관련 디자인 레퍼런스를 수집해 Notion에 저장합니다.")
 st.divider()
 
 # ─── 입력 UI ──────────────────────────────────────────────────────────────────
 keyword_input = st.text_input(
     "컨셉 키워드",
     placeholder="예: pink gradient chemistry DNA mystery UI",
-    help="스페이스로 구분해서 입력하세요",
 )
 
-st.markdown("**수집할 사이트 선택**")
-col1, col2, col3 = st.columns(3)
-with col1:
-    use_dribbble = st.checkbox("🏀 Dribbble", value=True)
-with col2:
-    use_behance = st.checkbox("🅱 Behance", value=True)
-with col3:
-    use_pinterest = st.checkbox("📌 Pinterest", value=True)
+col1, col2, col3, col4, col5 = st.columns(5)
+with col1: use_unsection     = st.checkbox("unsection",       value=True)
+with col2: use_interfaceingame = st.checkbox("interfaceingame", value=True)
+with col3: use_httpster       = st.checkbox("httpster",        value=True)
+with col4: use_css            = st.checkbox("cssdesignawards", value=True)
+with col5: use_pinterest      = st.checkbox("pinterest",       value=True)
 
 run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
 
 
-# ─── DuckDuckGo 검색 ──────────────────────────────────────────────────────────
+# ─── Scrapers ────────────────────────────────────────────────────────────────
 
-def ddg_search(query, max_results=12):
-    """DuckDuckGo HTML 검색 — API 키 불필요"""
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-        }
-        r = requests.post(
-            "https://html.duckduckgo.com/html/",
-            data={"q": query},
-            headers=headers,
-            timeout=15,
-        )
-        soup = BeautifulSoup(r.text, "html.parser")
-        results = []
-        for item in soup.select(".result__body")[:max_results]:
-            title_el = item.select_one(".result__title a")
-            if not title_el:
-                continue
-            href = title_el.get("href", "")
-            if "uddg=" in href:
-                href = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
-            if not href.startswith("http"):
-                continue
-            results.append({"title": title_el.get_text(strip=True), "url": href})
-        return results
-    except Exception as e:
-        st.warning(f"검색 오류: {e}")
-        return []
-
-
-def search_source(keywords, source_key, max_results=12):
-    site_query = SOURCES[source_key]
-    query = f"{' '.join(keywords)} {site_query}"
-    results = ddg_search(query, max_results=max_results)
+def scrape_unsection():
     refs = []
-    seen = set()
-    for r in results:
-        url = r.get("url", "")
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        refs.append({
-            "source": extract_domain(url),
-            "title": r.get("title", url)[:80],
-            "url": url,
-            "image_url": None,
-        })
+    try:
+        r = requests.get("https://www.unsection.com/", headers=HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for img in soup.find_all("img")[:16]:
+            src = img.get("src", "")
+            if not src.startswith("http") or src in seen:
+                continue
+            seen.add(src)
+            parent_a = img.find_parent("a", href=True)
+            href = parent_a["href"] if parent_a else ""
+            url = f"https://www.unsection.com{href}" if href.startswith("/") else href or "https://www.unsection.com"
+            refs.append({"source": "unsection.com", "title": img.get("alt", "").strip() or "Unsection", "url": url, "image_url": src})
+    except Exception as e:
+        st.warning(f"unsection: {e}")
     return refs
 
 
-def extract_domain(url):
+def scrape_interfaceingame():
+    refs = []
     try:
-        return url.split("//")[-1].split("/")[0].replace("www.", "").replace("kr.", "")
-    except Exception:
-        return url
+        r = requests.get("https://interfaceingame.com/screenshots/", headers=HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for art in soup.find_all("article")[:16]:
+            a = art.find("a", href=True)
+            if not a or a["href"] in seen:
+                continue
+            seen.add(a["href"])
+            title = art.find(["h1","h2","h3"])
+            refs.append({"source": "interfaceingame.com", "title": title.get_text(strip=True) if title else a["href"].split("/")[-2], "url": a["href"], "image_url": None})
+    except Exception as e:
+        st.warning(f"interfaceingame: {e}")
+    return refs
 
 
-# ─── Notion ───────────────────────────────────────────────────────────────────
+def scrape_httpster():
+    refs = []
+    try:
+        r = requests.get("https://httpster.net/", headers=HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for art in soup.find_all("article")[:16]:
+            a = art.find("a", href=True)
+            if not a or a["href"] in seen:
+                continue
+            seen.add(a["href"])
+            href = a["href"]
+            url = f"https://httpster.net{href}" if href.startswith("/") else href
+            img = art.find("img")
+            img_src = img.get("src", "") if img else ""
+            if img_src.startswith("/"): img_src = f"https://httpster.net{img_src}"
+            title = art.find(["h2","h3","h1"])
+            refs.append({"source": "httpster.net", "title": title.get_text(strip=True) if title else href.split("/")[-2], "url": url, "image_url": img_src or None})
+    except Exception as e:
+        st.warning(f"httpster: {e}")
+    return refs
+
+
+def scrape_cssdesignawards():
+    refs = []
+    try:
+        r = requests.get("https://www.cssdesignawards.com/website-gallery", headers=HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for art in soup.find_all("article")[:16]:
+            a = art.find("a", href=True)
+            if not a or a["href"] in seen:
+                continue
+            seen.add(a["href"])
+            href = a["href"]
+            url = f"https://www.cssdesignawards.com{href}" if href.startswith("/") else href
+            img = art.find("img")
+            img_src = img.get("src", "") if img else ""
+            if img_src.startswith("/"): img_src = f"https://www.cssdesignawards.com{img_src}"
+            title = art.find(["h3","h2","h1"])
+            refs.append({"source": "cssdesignawards.com", "title": title.get_text(strip=True) if title else href.split("/")[-2], "url": url, "image_url": img_src or None})
+    except Exception as e:
+        st.warning(f"cssdesignawards: {e}")
+    return refs
+
+
+def scrape_pinterest(keywords):
+    refs = []
+    try:
+        q = "+".join(keywords[:4])
+        r = requests.get(f"https://www.pinterest.com/search/pins/?q={q}", headers={**HEADERS, "Accept": "text/html"}, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for img in soup.find_all("img")[:16]:
+            src = img.get("src", "")
+            if not src.startswith("http") or src in seen or "logo" in src.lower():
+                continue
+            seen.add(src)
+            parent_a = img.find_parent("a", href=True)
+            href = parent_a["href"] if parent_a else ""
+            url = f"https://www.pinterest.com{href}" if href.startswith("/") else href or f"https://www.pinterest.com/search/pins/?q={q}"
+            refs.append({"source": "pinterest.com", "title": img.get("alt", "").strip() or "Pinterest", "url": url, "image_url": src})
+    except Exception as e:
+        st.warning(f"pinterest: {e}")
+    return refs
+
+
+# ─── Streamlit 미리보기 ───────────────────────────────────────────────────────
+
+def show_preview(all_refs):
+    sources = {}
+    for ref in all_refs:
+        sources.setdefault(ref["source"], []).append(ref)
+
+    site_emojis = {"unsection.com": "🖼", "interfaceingame.com": "🎮", "httpster.net": "🌐", "cssdesignawards.com": "🎖", "pinterest.com": "📌"}
+
+    for source, refs in sources.items():
+        st.subheader(f"{site_emojis.get(source,'📎')} {source}")
+        cols = st.columns(4)
+        for i, ref in enumerate(refs):
+            with cols[i % 4]:
+                if ref.get("image_url"):
+                    try:
+                        st.image(ref["image_url"], use_container_width=True)
+                    except Exception:
+                        pass
+                st.markdown(f"[{ref['title'][:40]}]({ref['url']})")
+        st.divider()
+
+
+# ─── Notion 저장 ─────────────────────────────────────────────────────────────
 
 def notion_headers():
-    return {
-        "Authorization": f"Bearer {NOTION_TOKEN}",
-        "Content-Type": "application/json",
-        "Notion-Version": NOTION_VERSION,
-    }
+    return {"Authorization": f"Bearer {NOTION_TOKEN}", "Content-Type": "application/json", "Notion-Version": NOTION_VERSION}
 
 
 def build_blocks(keywords, all_refs):
     timestamp = datetime.now().strftime("%Y.%m.%d %H:%M")
     blocks = [
-        {
-            "object": "block", "type": "callout",
-            "callout": {
-                "rich_text": [{"type": "text", "text": {"content": f"🎨  {' / '.join(keywords)}"}, "annotations": {"bold": True}}],
-                "icon": {"type": "emoji", "emoji": "🎨"},
-                "color": "pink_background",
-            }
-        },
-        {
-            "object": "block", "type": "paragraph",
-            "paragraph": {"rich_text": [{"type": "text", "text": {
-                "content": f"수집일: {timestamp}  |  레퍼런스 {len(all_refs)}개"
-            }, "annotations": {"color": "gray"}}]}
-        },
+        {"object": "block", "type": "callout", "callout": {
+            "rich_text": [{"type": "text", "text": {"content": f"🎨  {' / '.join(keywords)}"}, "annotations": {"bold": True}}],
+            "icon": {"type": "emoji", "emoji": "🎨"}, "color": "pink_background"}},
+        {"object": "block", "type": "paragraph", "paragraph": {
+            "rich_text": [{"type": "text", "text": {"content": f"수집일: {timestamp}  |  {len(all_refs)}개"}, "annotations": {"color": "gray"}}]}},
         {"object": "block", "type": "divider", "divider": {}},
     ]
-
-    site_emojis = {
-        "dribbble.com": "🏀",
-        "behance.net":  "🅱",
-        "pinterest.com": "📌",
-        "in.pinterest.com": "📌",
-        "kr.pinterest.com": "📌",
-    }
-
+    site_emojis = {"unsection.com": "🖼", "interfaceingame.com": "🎮", "httpster.net": "🌐", "cssdesignawards.com": "🎖", "pinterest.com": "📌"}
     sources = {}
     for ref in all_refs:
         sources.setdefault(ref["source"], []).append(ref)
-
     for source, refs in sources.items():
-        emoji = site_emojis.get(source, "📎")
-        blocks.append({
-            "object": "block", "type": "heading_2",
-            "heading_2": {"rich_text": [{"type": "text", "text": {"content": f"{emoji}  {source}"}}]}
-        })
+        blocks.append({"object": "block", "type": "heading_2", "heading_2": {
+            "rich_text": [{"type": "text", "text": {"content": f"{site_emojis.get(source,'📎')}  {source}"}}]}})
         for ref in refs:
             if ref.get("image_url") and ref["image_url"].startswith("http"):
-                blocks.append({
-                    "object": "block", "type": "image",
-                    "image": {"type": "external", "external": {"url": ref["image_url"]}}
-                })
+                blocks.append({"object": "block", "type": "image", "image": {"type": "external", "external": {"url": ref["image_url"]}}})
             blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": ref["url"]}})
         blocks.append({"object": "block", "type": "divider", "divider": {}})
-
     return blocks
 
 
-def create_notion_page(keywords, all_refs):
+def save_to_notion(keywords, all_refs):
     title = " + ".join(keywords[:5])
     timestamp = datetime.now().strftime("%m/%d %H:%M")
     blocks = build_blocks(keywords, all_refs)
-
     data = {
         "parent": {"page_id": PAGE_ID},
         "icon": {"type": "emoji", "emoji": "🔍"},
@@ -177,17 +208,11 @@ def create_notion_page(keywords, all_refs):
     }
     r = requests.post("https://api.notion.com/v1/pages", headers=notion_headers(), json=data)
     if r.status_code != 200:
-        return None, r.json().get("message", "알 수 없는 오류")
-
+        return None, r.json().get("message", "오류")
     page = r.json()
-    page_id = page["id"]
     for batch in [blocks[i:i+100] for i in range(100, len(blocks), 100)]:
-        requests.patch(
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=notion_headers(), json={"children": batch}
-        )
+        requests.patch(f"https://api.notion.com/v1/blocks/{page['id']}/children", headers=notion_headers(), json={"children": batch})
         time.sleep(0.3)
-
     return page.get("url", ""), None
 
 
@@ -196,43 +221,54 @@ def create_notion_page(keywords, all_refs):
 if run:
     if not keyword_input.strip():
         st.error("키워드를 입력해주세요.")
-    elif not NOTION_TOKEN:
-        st.error("NOTION_TOKEN이 설정되지 않았습니다.")
-    elif not any([use_dribbble, use_behance, use_pinterest]):
-        st.error("최소 하나의 사이트를 선택해주세요.")
     else:
         keywords = [k.strip() for k in keyword_input.split() if k.strip()]
-        st.info(f"🔍 **{', '.join(keywords)}** 키워드로 검색 시작...")
-
         all_refs = []
-        selected = [("dribbble", use_dribbble, "🏀 Dribbble"),
-                    ("behance",  use_behance,  "🅱 Behance"),
-                    ("pinterest",use_pinterest,"📌 Pinterest")]
-        total = max(sum(v for _, v, _ in selected), 1)
+
+        selected = [
+            (use_unsection,      scrape_unsection,      "unsection.com"),
+            (use_interfaceingame,scrape_interfaceingame,"interfaceingame.com"),
+            (use_httpster,       scrape_httpster,       "httpster.net"),
+            (use_css,            scrape_cssdesignawards,"cssdesignawards.com"),
+        ]
+        total = sum(v for v, _, _ in selected) + (1 if use_pinterest else 0)
         done = 0
         progress = st.progress(0)
         status = st.empty()
 
-        for source_key, enabled, label in selected:
+        for enabled, fn, name in selected:
             if not enabled:
                 continue
-            status.text(f"{label} 검색 중...")
-            refs = search_source(keywords, source_key)
+            status.text(f"📡 {name} 수집 중...")
+            refs = fn()
             all_refs.extend(refs)
             done += 1
             progress.progress(done / total)
-            st.write(f"✅ {label} — {len(refs)}개")
+
+        if use_pinterest:
+            status.text("📡 pinterest.com 수집 중...")
+            refs = scrape_pinterest(keywords)
+            all_refs.extend(refs)
+            done += 1
+            progress.progress(done / total)
+
+        progress.empty()
+        status.empty()
 
         if not all_refs:
-            st.warning("검색 결과가 없습니다. 키워드를 바꿔서 다시 시도해보세요.")
+            st.warning("수집된 레퍼런스가 없습니다.")
         else:
-            status.text("📝 Notion 페이지 생성 중...")
-            notion_url, error = create_notion_page(keywords, all_refs)
+            st.success(f"✅ 총 **{len(all_refs)}개** 수집 완료")
 
-            if notion_url:
-                status.empty()
-                progress.empty()
-                st.success(f"🎉 완료! **{len(all_refs)}개** 레퍼런스가 Notion에 저장됐습니다.")
-                st.link_button("📖 Notion에서 보기", notion_url, use_container_width=True)
-            else:
-                st.error(f"Notion 페이지 생성 실패: {error}")
+            # ── 미리보기
+            st.markdown("## 📋 미리보기")
+            show_preview(all_refs)
+
+            # ── Notion 저장
+            if NOTION_TOKEN:
+                with st.spinner("Notion에 저장 중..."):
+                    notion_url, error = save_to_notion(keywords, all_refs)
+                if notion_url:
+                    st.link_button("📖 Notion에서 보기", notion_url, use_container_width=True)
+                else:
+                    st.error(f"Notion 저장 실패: {error}")
