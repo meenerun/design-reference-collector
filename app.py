@@ -13,7 +13,6 @@ NOTION_VERSION = "2022-06-28"
 
 BING_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
@@ -21,24 +20,16 @@ st.set_page_config(page_title="Design Reference Collector", page_icon="🎨", la
 st.title("🎨 Design Reference Collector")
 st.divider()
 
-# ─── 입력 UI ──────────────────────────────────────────────────────────────────
 keyword_input = st.text_input(
     "컨셉 키워드",
-    placeholder="예: DNA graphic, mystery UI, pink gradient  (쉼표로 구분하면 각각 검색)",
+    placeholder="예: DNA graphic, mystery UI  (쉼표로 구분하면 각각 검색)",
 )
-
-st.markdown("**검색 카테고리 선택**")
-col1, col2, col3 = st.columns(3)
-with col1: use_gameui  = st.checkbox("🎮 Game UI / Web Design", value=True)
-with col2: use_concept = st.checkbox("🎨 Concept Art / Illustration", value=True)
-with col3: use_ref     = st.checkbox("📌 Pinterest / Reference", value=True)
-
 run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
 
 
-# ─── Bing 이미지 검색 ─────────────────────────────────────────────────────────
+# ─── Bing 검색 ───────────────────────────────────────────────────────────────
 
-def bing_image_search(query, count=16):
+def bing_search(query, count=20):
     try:
         r = requests.get(
             "https://www.bing.com/images/search",
@@ -51,18 +42,14 @@ def bing_image_search(query, count=16):
         for card in soup.select("a.iusc"):
             try:
                 m = json.loads(card.get("m", "{}"))
-                img_url = m.get("murl", "")
-                page_url = m.get("purl", "")
+                turl  = m.get("turl", "")   # Bing CDN 썸네일 (항상 로드됨)
+                murl  = m.get("murl", "")   # 원본 이미지
+                purl  = m.get("purl", "")   # 출처 페이지
                 title = m.get("t", "").strip()
-                if img_url and page_url and img_url not in seen:
-                    seen.add(img_url)
-                    domain = page_url.split("//")[-1].split("/")[0].replace("www.", "")
-                    results.append({
-                        "title": title or domain,
-                        "url": page_url,
-                        "image_url": img_url,
-                        "source": domain,
-                    })
+                if turl and purl and murl not in seen:
+                    seen.add(murl)
+                    domain = purl.split("//")[-1].split("/")[0].replace("www.", "").replace("kr.", "").replace("in.", "")
+                    results.append({"title": title, "url": purl, "thumb": turl, "image_url": murl, "source": domain})
                     if len(results) >= count:
                         break
             except Exception:
@@ -73,72 +60,55 @@ def bing_image_search(query, count=16):
         return []
 
 
-# ─── 미리보기 그리드 ─────────────────────────────────────────────────────────
+# ─── 미리보기 ─────────────────────────────────────────────────────────────────
 
-def show_preview(label, refs):
-    if not refs:
-        return
-    st.subheader(label)
+def show_grid(refs):
     cols = st.columns(4)
     for i, ref in enumerate(refs):
         with cols[i % 4]:
-            proxy = f"https://images.weserv.nl/?url={ref['image_url']}&w=400&output=webp"
-            try:
-                st.image(proxy, use_container_width=True)
-            except Exception:
-                st.markdown("🖼")
-            st.caption(f"[{ref['title'][:35]}]({ref['url']})")
-    st.divider()
+            st.image(ref["thumb"], use_container_width=True)
+            st.caption(f"[{ref['title'][:35] or ref['source']}]({ref['url']})")
 
 
 # ─── Notion 저장 ─────────────────────────────────────────────────────────────
 
-def notion_req_headers():
+def notion_headers():
     return {"Authorization": f"Bearer {NOTION_TOKEN}", "Content-Type": "application/json", "Notion-Version": NOTION_VERSION}
 
 
-def build_blocks(keywords, sections):
+def save_to_notion(keywords, all_refs):
     timestamp = datetime.now().strftime("%Y.%m.%d %H:%M")
-    total = sum(len(v) for v in sections.values())
+    title = " + ".join(keywords[:5])
+
     blocks = [
         {"object": "block", "type": "callout", "callout": {
             "rich_text": [{"type": "text", "text": {"content": f"🎨  {' / '.join(keywords)}"}, "annotations": {"bold": True}}],
             "icon": {"type": "emoji", "emoji": "🎨"}, "color": "pink_background"}},
         {"object": "block", "type": "paragraph", "paragraph": {
-            "rich_text": [{"type": "text", "text": {"content": f"수집일: {timestamp}  |  {total}개"}, "annotations": {"color": "gray"}}]}},
+            "rich_text": [{"type": "text", "text": {"content": f"수집일: {timestamp}  |  {len(all_refs)}개"}, "annotations": {"color": "gray"}}]}},
         {"object": "block", "type": "divider", "divider": {}},
     ]
-    for section_name, refs in sections.items():
-        if not refs:
-            continue
-        blocks.append({"object": "block", "type": "heading_2", "heading_2": {
-            "rich_text": [{"type": "text", "text": {"content": section_name}}]}})
-        for ref in refs:
-            if ref.get("image_url", "").startswith("http"):
-                blocks.append({"object": "block", "type": "image",
-                    "image": {"type": "external", "external": {"url": ref["image_url"]}}})
-            blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": ref["url"]}})
-        blocks.append({"object": "block", "type": "divider", "divider": {}})
-    return blocks
 
+    for ref in all_refs:
+        # Notion에는 원본 이미지 URL 사용
+        if ref.get("image_url", "").startswith("http"):
+            blocks.append({"object": "block", "type": "image",
+                "image": {"type": "external", "external": {"url": ref["image_url"]}}})
+        blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": ref["url"]}})
 
-def save_to_notion(keywords, sections):
-    title = " + ".join(keywords[:5])
-    timestamp = datetime.now().strftime("%m/%d %H:%M")
-    blocks = build_blocks(keywords, sections)
     data = {
         "parent": {"page_id": PAGE_ID},
         "icon": {"type": "emoji", "emoji": "🔍"},
-        "properties": {"title": {"title": [{"text": {"content": f"[{timestamp}] {title}"}}]}},
+        "properties": {"title": {"title": [{"text": {"content": f"[{timestamp[:5]}] {title}"}}]}},
         "children": blocks[:100],
     }
-    r = requests.post("https://api.notion.com/v1/pages", headers=notion_req_headers(), json=data)
+    r = requests.post("https://api.notion.com/v1/pages", headers=notion_headers(), json=data)
     if r.status_code != 200:
         return None, r.json().get("message", "오류")
     page = r.json()
     for batch in [blocks[i:i+100] for i in range(100, len(blocks), 100)]:
         requests.patch(f"https://api.notion.com/v1/blocks/{page['id']}/children",
-            headers=notion_req_headers(), json={"children": batch})
+            headers=notion_headers(), json={"children": batch})
         time.sleep(0.3)
     return page.get("url", ""), None
 
@@ -149,57 +119,36 @@ if run:
     if not keyword_input.strip():
         st.error("키워드를 입력해주세요.")
     else:
-        # 쉼표로 구분된 키워드 그룹 파싱
         groups = [g.strip() for g in keyword_input.split(",") if g.strip()]
-        if not groups:
-            groups = [keyword_input.strip()]
         keywords = keyword_input.replace(",", " ").split()
 
-        sections = {}
-        cats = [(use_gameui, "🎮 Game UI / Web Design",      "game UI design dribbble behance"),
-                (use_concept, "🎨 Concept Art / Illustration", "concept art illustration artstation"),
-                (use_ref,     "📌 Pinterest / Reference",      "design inspiration mood board pinterest")]
-        total = sum(enabled for enabled, _, _ in cats)
-        done = 0
+        all_refs = []
+        seen_imgs = set()
+        per_group = max(10, 20 // len(groups))
+
         progress = st.progress(0)
-        status = st.empty()
-
-        for enabled, label, suffix in cats:
-            if not enabled:
-                continue
-            status.text(f"{label} 검색 중...")
-            all_refs = []
-            seen_imgs = set()
-
-            per_group = max(8, 16 // len(groups))
-            for group in groups:
-                query = f"{group} {suffix} 2023 2024 2025"
-                refs = bing_image_search(query, count=per_group)
-                for ref in refs:
-                    if ref["image_url"] not in seen_imgs:
-                        seen_imgs.add(ref["image_url"])
-                        all_refs.append(ref)
-
-            sections[label] = all_refs
-            done += 1
-            progress.progress(done / total)
+        for i, group in enumerate(groups):
+            # Pinterest UI 위주로 검색
+            query = f"{group} UI design pinterest dribbble 2023 2024 2025"
+            refs = bing_search(query, count=per_group)
+            for ref in refs:
+                if ref["image_url"] not in seen_imgs:
+                    seen_imgs.add(ref["image_url"])
+                    all_refs.append(ref)
+            progress.progress((i + 1) / len(groups))
 
         progress.empty()
-        status.empty()
 
-        total_refs = sum(len(v) for v in sections.values())
-        if total_refs == 0:
-            st.warning("검색 결과가 없어요. 키워드를 영문으로 입력해보세요.")
+        if not all_refs:
+            st.warning("결과가 없어요. 영문 키워드로 입력해보세요.")
         else:
-            st.success(f"✅ 총 **{total_refs}개** 수집 완료")
-
-            for label, refs in sections.items():
-                show_preview(label, refs)
+            st.success(f"✅ **{len(all_refs)}개** 수집 완료")
+            show_grid(all_refs)
 
             if NOTION_TOKEN:
-                with st.spinner("Notion에 저장 중..."):
-                    notion_url, error = save_to_notion(keywords, sections)
-                if notion_url:
-                    st.link_button("📖 Notion에서 보기", notion_url, use_container_width=True)
+                with st.spinner("Notion 저장 중..."):
+                    url, err = save_to_notion(keywords, all_refs)
+                if url:
+                    st.link_button("📖 Notion에서 보기", url, use_container_width=True)
                 else:
-                    st.error(f"Notion 저장 실패: {error}")
+                    st.error(f"Notion 저장 실패: {err}")
