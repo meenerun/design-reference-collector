@@ -1,5 +1,5 @@
 import streamlit as st
-import os, sys, json, time, requests
+import os, json, time, requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 
@@ -47,7 +47,8 @@ with col4:
 
 run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
 
-# ─── Scrapers ────────────────────────────────────────────────────────────────
+
+# ─── Scrapers (requests + bs4 only) ──────────────────────────────────────────
 
 def scrape_unsection():
     refs = []
@@ -66,7 +67,12 @@ def scrape_unsection():
                 f"https://www.unsection.com{href}"
                 if href.startswith("/") else href or "https://www.unsection.com"
             )
-            refs.append({"source": "unsection.com", "title": img.get("alt", full_url.split("/")[-1]), "url": full_url, "image_url": src})
+            refs.append({
+                "source": "unsection.com",
+                "title": img.get("alt", "").strip() or full_url.split("/")[-1],
+                "url": full_url,
+                "image_url": src,
+            })
     except Exception as e:
         st.warning(f"unsection.com 오류: {e}")
     return refs
@@ -85,7 +91,12 @@ def scrape_interfaceingame():
             seen.add(a["href"])
             title_el = art.find(["h1", "h2", "h3"])
             title = title_el.get_text(strip=True) if title_el else a["href"].split("/")[-2]
-            refs.append({"source": "interfaceingame.com", "title": title, "url": a["href"], "image_url": None})
+            refs.append({
+                "source": "interfaceingame.com",
+                "title": title,
+                "url": a["href"],
+                "image_url": None,
+            })
     except Exception as e:
         st.warning(f"interfaceingame.com 오류: {e}")
     return refs
@@ -94,62 +105,58 @@ def scrape_interfaceingame():
 def scrape_httpster():
     refs = []
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
-            page.goto("https://httpster.net/", wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(2000)
-            seen = set()
-            for card in page.query_selector_all(".site-item, .item, article")[:10]:
-                link = card.query_selector("a")
-                if not link:
-                    continue
-                href = link.get_attribute("href")
-                if not href or href in seen:
-                    continue
-                seen.add(href)
-                img = card.query_selector("img")
-                img_src = img.get_attribute("src") if img else None
-                title_el = card.query_selector("h2, h3, .title")
-                title = title_el.inner_text().strip() if title_el else href
-                refs.append({
-                    "source": "httpster.net", "title": title,
-                    "url": href if href.startswith("http") else f"https://httpster.net{href}",
-                    "image_url": img_src,
-                })
-            browser.close()
+        r = requests.get("https://httpster.net/", headers=HTTP_HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for art in soup.find_all("article")[:12]:
+            a = art.find("a", href=True)
+            if not a or a["href"] in seen:
+                continue
+            seen.add(a["href"])
+            href = a["href"]
+            full_url = f"https://httpster.net{href}" if href.startswith("/") else href
+            img = art.find("img")
+            img_src = img.get("src", "") if img else ""
+            if img_src and img_src.startswith("/"):
+                img_src = f"https://httpster.net{img_src}"
+            title_el = art.find(["h2", "h3", "h1"])
+            title = title_el.get_text(strip=True) if title_el else href.split("/")[-2]
+            refs.append({
+                "source": "httpster.net",
+                "title": title,
+                "url": full_url,
+                "image_url": img_src or None,
+            })
     except Exception as e:
         st.warning(f"httpster.net 오류: {e}")
     return refs
 
 
-def scrape_cssdesignawards(keywords):
+def scrape_cssdesignawards():
     refs = []
     try:
-        from playwright.sync_api import sync_playwright
-        query = "+".join(keywords[:3])
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
-            page.goto(f"https://www.cssdesignawards.com/search?q={query}", wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(3000)
-            seen = set()
-            for card in page.query_selector_all(".wf-item, .gallery-item, article")[:8]:
-                link = card.query_selector("a")
-                if not link:
-                    continue
-                href = link.get_attribute("href")
-                if not href or href in seen:
-                    continue
-                seen.add(href)
-                full_url = f"https://www.cssdesignawards.com{href}" if href.startswith("/") else href
-                img = card.query_selector("img")
-                img_src = img.get_attribute("src") if img else None
-                title_el = card.query_selector("h3, h2, .title")
-                title = title_el.inner_text().strip() if title_el else "CSS Design Awards"
-                refs.append({"source": "cssdesignawards.com", "title": title, "url": full_url, "image_url": img_src})
-            browser.close()
+        r = requests.get("https://www.cssdesignawards.com/website-gallery", headers=HTTP_HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for art in soup.find_all("article")[:12]:
+            a = art.find("a", href=True)
+            if not a or a["href"] in seen:
+                continue
+            seen.add(a["href"])
+            href = a["href"]
+            full_url = f"https://www.cssdesignawards.com{href}" if href.startswith("/") else href
+            img = art.find("img")
+            img_src = img.get("src", "") if img else ""
+            if img_src and img_src.startswith("/"):
+                img_src = f"https://www.cssdesignawards.com{img_src}"
+            title_el = art.find(["h3", "h2", "h1"])
+            title = title_el.get_text(strip=True) if title_el else href.split("/")[-2]
+            refs.append({
+                "source": "cssdesignawards.com",
+                "title": title,
+                "url": full_url,
+                "image_url": img_src or None,
+            })
     except Exception as e:
         st.warning(f"cssdesignawards.com 오류: {e}")
     return refs
@@ -183,7 +190,12 @@ def build_blocks(keywords, all_refs):
         {"object": "block", "type": "divider", "divider": {}},
     ]
 
-    site_emojis = {"unsection.com": "🖼", "interfaceingame.com": "🎮", "httpster.net": "🌐", "cssdesignawards.com": "🎖"}
+    site_emojis = {
+        "unsection.com": "🖼",
+        "interfaceingame.com": "🎮",
+        "httpster.net": "🌐",
+        "cssdesignawards.com": "🎖",
+    }
     sources = {}
     for ref in all_refs:
         sources.setdefault(ref["source"], []).append(ref)
@@ -195,7 +207,10 @@ def build_blocks(keywords, all_refs):
         })
         for ref in refs:
             if ref.get("image_url") and ref["image_url"].startswith("http"):
-                blocks.append({"object": "block", "type": "image", "image": {"type": "external", "external": {"url": ref["image_url"]}}})
+                blocks.append({
+                    "object": "block", "type": "image",
+                    "image": {"type": "external", "external": {"url": ref["image_url"]}}
+                })
             blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": ref["url"]}})
         blocks.append({"object": "block", "type": "divider", "divider": {}})
 
@@ -220,7 +235,10 @@ def create_notion_page(keywords, all_refs):
     page = r.json()
     page_id = page["id"]
     for batch in [blocks[i:i+100] for i in range(100, len(blocks), 100)]:
-        requests.patch(f"https://api.notion.com/v1/blocks/{page_id}/children", headers=notion_headers(), json={"children": batch})
+        requests.patch(
+            f"https://api.notion.com/v1/blocks/{page_id}/children",
+            headers=notion_headers(), json={"children": batch}
+        )
         time.sleep(0.3)
 
     return page.get("url", ""), None
@@ -238,11 +256,11 @@ if run:
         st.info(f"🔍 **{', '.join(keywords)}** 키워드로 수집 시작...")
 
         all_refs = []
+        sites_selected = [use_unsection, use_game, use_httpster, use_css]
+        total = max(sum(sites_selected), 1)
+        done = 0
         progress = st.progress(0)
         status = st.empty()
-        sites_selected = [use_unsection, use_game, use_httpster, use_css]
-        total = sum(sites_selected)
-        done = 0
 
         if use_unsection:
             status.text("📡 unsection.com 수집 중...")
@@ -270,7 +288,7 @@ if run:
 
         if use_css:
             status.text("📡 cssdesignawards.com 수집 중...")
-            refs = scrape_cssdesignawards(keywords)
+            refs = scrape_cssdesignawards()
             all_refs.extend(refs)
             done += 1
             progress.progress(done / total)
