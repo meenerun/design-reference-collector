@@ -216,6 +216,36 @@ def save_to_notion(keywords, all_refs):
     return page.get("url", ""), None
 
 
+# ─── 키워드 필터 ──────────────────────────────────────────────────────────────
+
+def keyword_score(ref, keywords):
+    """키워드가 title/url/image_url에 몇 개 포함되는지 반환 (대소문자 무시)"""
+    haystack = " ".join([
+        ref.get("title", ""),
+        ref.get("url", ""),
+        ref.get("image_url", "") or "",
+    ]).lower()
+    return sum(1 for kw in keywords if kw.lower() in haystack)
+
+
+def filter_refs(all_refs, keywords):
+    """
+    키워드가 1개면 OR(전체 반환),
+    2개 이상이면 모든 키워드가 포함된 것만 반환(AND).
+    AND 결과가 0이면 하나라도 포함된 것 반환 + 안내 메시지.
+    """
+    if len(keywords) <= 1:
+        return all_refs, "and"
+
+    matched = [r for r in all_refs if keyword_score(r, keywords) == len(keywords)]
+    if matched:
+        return matched, "and"
+
+    # AND 결과 없을 때 → OR fallback (1개 이상 포함)
+    partial = [r for r in all_refs if keyword_score(r, keywords) >= 1]
+    return partial, "or"
+
+
 # ─── 실행 ─────────────────────────────────────────────────────────────────────
 
 if run:
@@ -258,16 +288,28 @@ if run:
         if not all_refs:
             st.warning("수집된 레퍼런스가 없습니다.")
         else:
-            st.success(f"✅ 총 **{len(all_refs)}개** 수집 완료")
+            filtered, mode = filter_refs(all_refs, keywords)
+
+            if len(keywords) >= 2:
+                if mode == "and":
+                    st.success(f"✅ **{len(filtered)}개** 수집 완료 — 키워드 **전부 포함** 필터 적용")
+                else:
+                    st.warning(
+                        f"⚠️ 키워드를 **모두** 포함한 레퍼런스가 없어 **하나 이상** 포함된 {len(filtered)}개를 표시합니다.\n\n"
+                        f"> 디자인 갤러리 사이트들은 제목에 컨셉 키워드('DNA', 'chemistry' 등)를 잘 쓰지 않습니다. "
+                        f"**Pinterest**에서 더 구체적인 결과를 얻으려면 영어 키워드로 시도해보세요."
+                    )
+            else:
+                st.success(f"✅ 총 **{len(filtered)}개** 수집 완료")
 
             # ── 미리보기
             st.markdown("## 📋 미리보기")
-            show_preview(all_refs)
+            show_preview(filtered)
 
             # ── Notion 저장
             if NOTION_TOKEN:
                 with st.spinner("Notion에 저장 중..."):
-                    notion_url, error = save_to_notion(keywords, all_refs)
+                    notion_url, error = save_to_notion(keywords, filtered)
                 if notion_url:
                     st.link_button("📖 Notion에서 보기", notion_url, use_container_width=True)
                 else:
