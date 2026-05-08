@@ -1,10 +1,13 @@
 import streamlit as st
-import os, json, time, requests
+import os, time, requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 
 # ─── 환경변수 ─────────────────────────────────────────────────────────────────
-NOTION_TOKEN = st.secrets.get("NOTION_TOKEN", os.getenv("NOTION_TOKEN", ""))
+try:
+    NOTION_TOKEN = st.secrets["NOTION_TOKEN"]
+except Exception:
+    NOTION_TOKEN = os.getenv("NOTION_TOKEN", "")
 PAGE_ID = "35a06261920e80e0b6c5d27d07c5c116"
 NOTION_VERSION = "2022-06-28"
 
