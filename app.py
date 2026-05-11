@@ -20,61 +20,81 @@ st.title("🎨 Design Reference Collector")
 st.caption("기업 교육게임 그래픽 · UI 레퍼런스 수집기")
 st.divider()
 
-# ─── 빠른 키워드 프리셋 ───────────────────────────────────────────────────────
+# ─── 세션 상태 초기화 ─────────────────────────────────────────────────────────
+if "kw_value" not in st.session_state:
+    st.session_state.kw_value = ""
+if "active_preset" not in st.session_state:
+    st.session_state.active_preset = ""
+
+# ─── 프리셋 정의 ──────────────────────────────────────────────────────────────
 PRESETS = {
     "🎮 UI": {
-        "게임 HUD":           "game HUD interface UI",
-        "게임화 대시보드":     "gamification dashboard UI",
-        "퀴즈/선택지 UI":     "quiz game UI interaction",
-        "팝업/모달":          "game popup modal UI",
-        "인벤토리/아이템":    "game inventory item UI",
-        "진행도/업적":        "progress achievement badge UI",
-        "로그인/온보딩":      "game onboarding login screen UI",
+        "게임 HUD":        "game HUD interface UI",
+        "게임화 대시보드": "gamification dashboard UI",
+        "퀴즈/선택지":    "quiz game UI interaction",
+        "팝업/모달":      "game popup modal UI",
+        "인벤토리":       "game inventory item UI",
+        "진행도/업적":    "progress achievement badge UI",
+        "온보딩":         "game onboarding login screen UI",
     },
     "🖼 그래픽": {
-        "캐릭터 일러스트":    "character illustration flat design",
-        "아이콘 세트":        "game icon set graphic design",
-        "배경/환경":          "2D game background environment art",
-        "인포그래픽":         "infographic data visualization design",
-        "뱃지/트로피":        "badge trophy award graphic",
-        "타이포그래피":       "bold typography poster graphic",
+        "캐릭터 일러스트": "character illustration flat design",
+        "아이콘 세트":    "game icon set graphic design",
+        "배경/환경":      "2D game background environment art",
+        "인포그래픽":     "infographic data visualization design",
+        "뱃지/트로피":    "badge trophy award graphic",
+        "타이포그래피":   "bold typography poster graphic",
     },
     "🎨 스타일": {
-        "Flat / 미니멀":      "flat minimal colorful UI design",
-        "다크 네온":          "dark neon cyberpunk UI",
-        "기업/클린":          "corporate clean professional UI",
-        "레트로 픽셀":        "retro pixel art game UI",
-        "SF / 미래":          "sci-fi futuristic interface design",
-        "카툰 / 캐주얼":      "cartoon casual colorful game design",
+        "Flat/미니멀":  "flat minimal colorful UI design",
+        "다크 네온":    "dark neon cyberpunk UI",
+        "기업/클린":    "corporate clean professional UI",
+        "레트로 픽셀":  "retro pixel art game UI",
+        "SF/미래":      "sci-fi futuristic interface design",
+        "카툰/캐주얼":  "cartoon casual colorful game design",
     },
 }
 
-st.markdown("**빠른 키워드 선택**")
-preset_kw = ""
-for category, items in PRESETS.items():
-    with st.expander(category, expanded=False):
+# ─── 레이아웃: 왼쪽 프리셋 | 오른쪽 입력+실행 ────────────────────────────────
+left_col, right_col = st.columns([3, 2], gap="large")
+
+with left_col:
+    st.markdown("**빠른 키워드 선택**")
+    for category, items in PRESETS.items():
+        st.markdown(f"<small style='color:gray'>{category}</small>", unsafe_allow_html=True)
         btn_cols = st.columns(len(items))
         for idx, (label, kw) in enumerate(items.items()):
-            if btn_cols[idx].button(label, key=f"preset_{label}", use_container_width=True):
-                preset_kw = kw
+            is_active = st.session_state.active_preset == f"{category}_{label}"
+            btn_label = f"✅ {label}" if is_active else label
+            if btn_cols[idx].button(btn_label, key=f"p_{category}_{label}", use_container_width=True):
+                st.session_state.kw_value = kw
+                st.session_state.active_preset = f"{category}_{label}"
+                st.rerun()
+
+with right_col:
+    st.markdown("**컨셉 키워드**")
+    keyword_input = st.text_input(
+        "컨셉 키워드",
+        value=st.session_state.kw_value,
+        placeholder="예: gamification dashboard dark UI",
+        label_visibility="collapsed",
+    )
+    # 직접 타이핑 시 프리셋 선택 해제
+    if keyword_input != st.session_state.kw_value:
+        st.session_state.kw_value = keyword_input
+        st.session_state.active_preset = ""
+
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
+    with col1: use_behance         = st.checkbox("Behance",          value=True)
+    with col2: use_interfaceingame = st.checkbox("interfaceingame",  value=True)
+    with col3: use_pinterest       = st.checkbox("Pinterest",        value=True)
+    with col4: use_latest          = st.checkbox("최신 트렌드",       value=False,
+                                                  help="unsection · httpster · cssdesignawards")
+
+    run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
 
 st.divider()
-
-# ─── 입력 UI ──────────────────────────────────────────────────────────────────
-keyword_input = st.text_input(
-    "컨셉 키워드",
-    value=preset_kw,
-    placeholder="예: gamification dashboard UI dark / quiz game flat colorful",
-)
-
-col1, col2, col3, col4 = st.columns(4)
-with col1: use_behance        = st.checkbox("Behance",         value=True)
-with col2: use_interfaceingame= st.checkbox("interfaceingame", value=True)
-with col3: use_pinterest      = st.checkbox("Pinterest",       value=True)
-with col4: use_latest         = st.checkbox("최신 트렌드 사이트", value=False,
-                                             help="unsection · httpster · cssdesignawards — 키워드 무관 최신 디자인 갤러리")
-
-run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
 
 
 # ─── Scrapers ────────────────────────────────────────────────────────────────
