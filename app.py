@@ -17,13 +17,54 @@ HEADERS = {
 
 st.set_page_config(page_title="Design Reference Collector", page_icon="🎨", layout="wide")
 st.title("🎨 Design Reference Collector")
+st.caption("기업 교육게임 그래픽 · UI 레퍼런스 수집기")
+st.divider()
+
+# ─── 빠른 키워드 프리셋 ───────────────────────────────────────────────────────
+PRESETS = {
+    "🎮 UI": {
+        "게임 HUD":           "game HUD interface UI",
+        "게임화 대시보드":     "gamification dashboard UI",
+        "퀴즈/선택지 UI":     "quiz game UI interaction",
+        "팝업/모달":          "game popup modal UI",
+        "인벤토리/아이템":    "game inventory item UI",
+        "진행도/업적":        "progress achievement badge UI",
+        "로그인/온보딩":      "game onboarding login screen UI",
+    },
+    "🖼 그래픽": {
+        "캐릭터 일러스트":    "character illustration flat design",
+        "아이콘 세트":        "game icon set graphic design",
+        "배경/환경":          "2D game background environment art",
+        "인포그래픽":         "infographic data visualization design",
+        "뱃지/트로피":        "badge trophy award graphic",
+        "타이포그래피":       "bold typography poster graphic",
+    },
+    "🎨 스타일": {
+        "Flat / 미니멀":      "flat minimal colorful UI design",
+        "다크 네온":          "dark neon cyberpunk UI",
+        "기업/클린":          "corporate clean professional UI",
+        "레트로 픽셀":        "retro pixel art game UI",
+        "SF / 미래":          "sci-fi futuristic interface design",
+        "카툰 / 캐주얼":      "cartoon casual colorful game design",
+    },
+}
+
+st.markdown("**빠른 키워드 선택**")
+preset_kw = ""
+for category, items in PRESETS.items():
+    with st.expander(category, expanded=False):
+        btn_cols = st.columns(len(items))
+        for idx, (label, kw) in enumerate(items.items()):
+            if btn_cols[idx].button(label, key=f"preset_{label}", use_container_width=True):
+                preset_kw = kw
+
 st.divider()
 
 # ─── 입력 UI ──────────────────────────────────────────────────────────────────
-st.caption("컨셉 키워드를 입력하면 **Behance · interfaceingame · Pinterest**에서 키워드에 맞는 레퍼런스를 가져옵니다.")
 keyword_input = st.text_input(
     "컨셉 키워드",
-    placeholder="예: sci-fi brutalism pink UI / dark neon game interface",
+    value=preset_kw,
+    placeholder="예: gamification dashboard UI dark / quiz game flat colorful",
 )
 
 col1, col2, col3, col4 = st.columns(4)
@@ -39,13 +80,14 @@ run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_
 # ─── Scrapers ────────────────────────────────────────────────────────────────
 
 def scrape_behance(keywords):
-    """Behance 키워드 검색 — UI/UX 필드 우선, 전체 검색 병행"""
+    """Behance 키워드 검색 — UI/UX 필드 + 그래픽 디자인 필드 병행"""
     refs = []
     q = "+".join(keywords)
     seen_hrefs = set()
 
     for url in [
         f"https://www.behance.net/search/projects?search={q}&field=ui%2Fux",
+        f"https://www.behance.net/search/projects?search={q}&field=graphic-design",
         f"https://www.behance.net/search/projects?search={q}",
     ]:
         try:
