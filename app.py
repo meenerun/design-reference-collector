@@ -1,5 +1,5 @@
 import streamlit as st
-import os, time, requests
+import os, time, requests, re
 from datetime import datetime
 from bs4 import BeautifulSoup
 
@@ -20,23 +20,131 @@ st.title("🎨 Design Reference Collector")
 st.divider()
 
 # ─── 입력 UI ──────────────────────────────────────────────────────────────────
-st.caption("키워드를 공백 또는 쉼표로 구분해 입력하세요. 하나라도 포함된 레퍼런스를 가져옵니다.")
+st.caption("컨셉 키워드를 입력하면 **Behance · interfaceingame · Pinterest**에서 키워드에 맞는 레퍼런스를 가져옵니다.")
 keyword_input = st.text_input(
     "컨셉 키워드",
-    placeholder="예: sci-fi Brutalism pink ui",
+    placeholder="예: sci-fi brutalism pink UI / dark neon game interface",
 )
 
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1: use_unsection     = st.checkbox("unsection",       value=True)
-with col2: use_interfaceingame = st.checkbox("interfaceingame", value=True)
-with col3: use_httpster       = st.checkbox("httpster",        value=True)
-with col4: use_css            = st.checkbox("cssdesignawards", value=True)
-with col5: use_pinterest      = st.checkbox("pinterest",       value=True)
+col1, col2, col3, col4 = st.columns(4)
+with col1: use_behance        = st.checkbox("Behance",         value=True)
+with col2: use_interfaceingame= st.checkbox("interfaceingame", value=True)
+with col3: use_pinterest      = st.checkbox("Pinterest",       value=True)
+with col4: use_latest         = st.checkbox("최신 트렌드 사이트", value=False,
+                                             help="unsection · httpster · cssdesignawards — 키워드 무관 최신 디자인 갤러리")
 
 run = st.button("🔍 레퍼런스 수집하기", type="primary", use_container_width=True)
 
 
 # ─── Scrapers ────────────────────────────────────────────────────────────────
+
+def scrape_behance(keywords):
+    """Behance 키워드 검색 — UI/UX 필드 우선, 전체 검색 병행"""
+    refs = []
+    q = "+".join(keywords)
+    seen_hrefs = set()
+
+    for url in [
+        f"https://www.behance.net/search/projects?search={q}&field=ui%2Fux",
+        f"https://www.behance.net/search/projects?search={q}",
+    ]:
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=14)
+            soup = BeautifulSoup(r.text, "html.parser")
+            imgs = soup.find_all("img", src=re.compile(r"mir-s3"))
+            links = soup.find_all("a", href=re.compile(r"behance\.net/gallery/"))
+            # img ↔ link 매핑 (순서 기반)
+            full_links = [a["href"] for a in links if "behance.net/gallery/" in a["href"]]
+            for i, img in enumerate(imgs):
+                src = img.get("src", "")
+                alt = img.get("alt", "").strip() or "Behance"
+                href = full_links[i] if i < len(full_links) else "https://www.behance.net"
+                if href in seen_hrefs:
+                    continue
+                seen_hrefs.add(href)
+                refs.append({
+                    "source": "behance.net",
+                    "title": alt,
+                    "url": href,
+                    "image_url": src,
+                    "extra": alt,
+                })
+        except Exception as e:
+            st.warning(f"behance: {e}")
+        if len(refs) >= 16:
+            break
+    return refs[:20]
+
+
+def scrape_interfaceingame(keywords=None):
+    """Game UI 스크린샷 — 키워드 URL 검색 시도 후 전체 수집"""
+    refs = []
+    urls_to_try = []
+
+    # 키워드로 게임명/장르 검색 시도
+    if keywords:
+        q = "-".join(k.lower() for k in keywords[:2])
+        urls_to_try.append(f"https://interfaceingame.com/search/?q={'+'.join(keywords)}")
+    urls_to_try.append("https://interfaceingame.com/screenshots/")
+
+    seen = set()
+    for base_url in urls_to_try:
+        try:
+            r = requests.get(base_url, headers=HEADERS, timeout=12)
+            soup = BeautifulSoup(r.text, "html.parser")
+            for art in soup.find_all("article")[:24]:
+                a = art.find("a", href=True)
+                if not a or a["href"] in seen:
+                    continue
+                seen.add(a["href"])
+                title_tag = art.find(["h1","h2","h3"])
+                title = title_tag.get_text(strip=True) if title_tag else a["href"].split("/")[-2]
+                img = art.find("img")
+                img_src = img.get("src","") if img else None
+                extra = art.get_text(separator=" ", strip=True)
+                refs.append({
+                    "source": "interfaceingame.com",
+                    "title": title,
+                    "url": a["href"],
+                    "image_url": img_src,
+                    "extra": extra,
+                })
+            if refs:
+                break
+        except Exception as e:
+            st.warning(f"interfaceingame: {e}")
+    return refs
+
+
+def scrape_pinterest(keywords):
+    refs = []
+    try:
+        q = "+".join(keywords[:5])
+        r = requests.get(
+            f"https://www.pinterest.com/search/pins/?q={q}",
+            headers={**HEADERS, "Accept": "text/html"}, timeout=12
+        )
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for img in soup.find_all("img")[:24]:
+            src = img.get("src", "")
+            if not src.startswith("http") or src in seen or "logo" in src.lower():
+                continue
+            seen.add(src)
+            parent_a = img.find_parent("a", href=True)
+            href = parent_a["href"] if parent_a else ""
+            url = f"https://www.pinterest.com{href}" if href.startswith("/") else href or f"https://www.pinterest.com/search/pins/?q={q}"
+            refs.append({
+                "source": "pinterest.com",
+                "title": img.get("alt","").strip() or "Pinterest",
+                "url": url,
+                "image_url": src,
+                "extra": "",
+            })
+    except Exception as e:
+        st.warning(f"pinterest: {e}")
+    return refs
+
 
 def scrape_unsection():
     refs = []
@@ -44,56 +152,18 @@ def scrape_unsection():
         r = requests.get("https://www.unsection.com/", headers=HEADERS, timeout=12)
         soup = BeautifulSoup(r.text, "html.parser")
         seen = set()
-        for img in soup.find_all("img")[:30]:
-            src = img.get("src", "")
+        for img in soup.find_all("img")[:16]:
+            src = img.get("src","")
             if not src.startswith("http") or src in seen:
                 continue
             seen.add(src)
             parent_a = img.find_parent("a", href=True)
             href = parent_a["href"] if parent_a else ""
             url = f"https://www.unsection.com{href}" if href.startswith("/") else href or "https://www.unsection.com"
-            # 주변 텍스트도 수집
-            extra = ""
-            if parent_a:
-                extra = parent_a.get_text(separator=" ", strip=True)
-            refs.append({
-                "source": "unsection.com",
-                "title": img.get("alt", "").strip() or "Unsection",
-                "url": url,
-                "image_url": src,
-                "extra": extra,
-            })
+            refs.append({"source": "unsection.com", "title": img.get("alt","").strip() or "Unsection",
+                         "url": url, "image_url": src, "extra": ""})
     except Exception as e:
         st.warning(f"unsection: {e}")
-    return refs
-
-
-def scrape_interfaceingame():
-    refs = []
-    try:
-        r = requests.get("https://interfaceingame.com/screenshots/", headers=HEADERS, timeout=12)
-        soup = BeautifulSoup(r.text, "html.parser")
-        seen = set()
-        for art in soup.find_all("article")[:30]:
-            a = art.find("a", href=True)
-            if not a or a["href"] in seen:
-                continue
-            seen.add(a["href"])
-            title = art.find(["h1","h2","h3"])
-            title_text = title.get_text(strip=True) if title else a["href"].split("/")[-2]
-            # 태그/카테고리 텍스트 추가 수집
-            extra = art.get_text(separator=" ", strip=True)
-            img = art.find("img")
-            img_src = img.get("src", "") if img else None
-            refs.append({
-                "source": "interfaceingame.com",
-                "title": title_text,
-                "url": a["href"],
-                "image_url": img_src,
-                "extra": extra,
-            })
-    except Exception as e:
-        st.warning(f"interfaceingame: {e}")
     return refs
 
 
@@ -103,7 +173,7 @@ def scrape_httpster():
         r = requests.get("https://httpster.net/", headers=HEADERS, timeout=12)
         soup = BeautifulSoup(r.text, "html.parser")
         seen = set()
-        for art in soup.find_all("article")[:30]:
+        for art in soup.find_all("article")[:16]:
             a = art.find("a", href=True)
             if not a or a["href"] in seen:
                 continue
@@ -111,17 +181,13 @@ def scrape_httpster():
             href = a["href"]
             url = f"https://httpster.net{href}" if href.startswith("/") else href
             img = art.find("img")
-            img_src = img.get("src", "") if img else ""
+            img_src = img.get("src","") if img else ""
             if img_src.startswith("/"): img_src = f"https://httpster.net{img_src}"
             title = art.find(["h2","h3","h1"])
-            extra = art.get_text(separator=" ", strip=True)
-            refs.append({
-                "source": "httpster.net",
-                "title": title.get_text(strip=True) if title else href.split("/")[-2],
-                "url": url,
-                "image_url": img_src or None,
-                "extra": extra,
-            })
+            refs.append({"source": "httpster.net",
+                         "title": title.get_text(strip=True) if title else href.split("/")[-2],
+                         "url": url, "image_url": img_src or None,
+                         "extra": art.get_text(separator=" ", strip=True)})
     except Exception as e:
         st.warning(f"httpster: {e}")
     return refs
@@ -133,7 +199,7 @@ def scrape_cssdesignawards():
         r = requests.get("https://www.cssdesignawards.com/website-gallery", headers=HEADERS, timeout=12)
         soup = BeautifulSoup(r.text, "html.parser")
         seen = set()
-        for art in soup.find_all("article")[:30]:
+        for art in soup.find_all("article")[:16]:
             a = art.find("a", href=True)
             if not a or a["href"] in seen:
                 continue
@@ -141,98 +207,35 @@ def scrape_cssdesignawards():
             href = a["href"]
             url = f"https://www.cssdesignawards.com{href}" if href.startswith("/") else href
             img = art.find("img")
-            img_src = img.get("src", "") if img else ""
+            img_src = img.get("src","") if img else ""
             if img_src.startswith("/"): img_src = f"https://www.cssdesignawards.com{img_src}"
             title = art.find(["h3","h2","h1"])
-            extra = art.get_text(separator=" ", strip=True)
-            refs.append({
-                "source": "cssdesignawards.com",
-                "title": title.get_text(strip=True) if title else href.split("/")[-2],
-                "url": url,
-                "image_url": img_src or None,
-                "extra": extra,
-            })
+            refs.append({"source": "cssdesignawards.com",
+                         "title": title.get_text(strip=True) if title else href.split("/")[-2],
+                         "url": url, "image_url": img_src or None,
+                         "extra": art.get_text(separator=" ", strip=True)})
     except Exception as e:
         st.warning(f"cssdesignawards: {e}")
     return refs
 
 
-def scrape_pinterest(keywords):
-    refs = []
-    try:
-        q = "+".join(keywords[:4])
-        r = requests.get(f"https://www.pinterest.com/search/pins/?q={q}", headers={**HEADERS, "Accept": "text/html"}, timeout=12)
-        soup = BeautifulSoup(r.text, "html.parser")
-        seen = set()
-        for img in soup.find_all("img")[:30]:
-            src = img.get("src", "")
-            if not src.startswith("http") or src in seen or "logo" in src.lower():
-                continue
-            seen.add(src)
-            parent_a = img.find_parent("a", href=True)
-            href = parent_a["href"] if parent_a else ""
-            url = f"https://www.pinterest.com{href}" if href.startswith("/") else href or f"https://www.pinterest.com/search/pins/?q={q}"
-            refs.append({
-                "source": "pinterest.com",
-                "title": img.get("alt", "").strip() or "Pinterest",
-                "url": url,
-                "image_url": src,
-                "extra": "",
-            })
-    except Exception as e:
-        st.warning(f"pinterest: {e}")
-    return refs
-
-
-# ─── 키워드 필터 ──────────────────────────────────────────────────────────────
-
-def keyword_score(ref, keywords):
-    haystack = " ".join([
-        ref.get("title", ""),
-        ref.get("url", ""),
-        ref.get("image_url", "") or "",
-        ref.get("extra", "") or "",
-    ]).lower()
-    return sum(1 for kw in keywords if kw.lower() in haystack)
-
-
-def filter_and_sort(all_refs, keywords):
-    """하나 이상 키워드가 포함된 ref만 반환, 많이 매칭될수록 앞으로."""
-    if not keywords:
-        return all_refs
-
-    scored = [(r, keyword_score(r, keywords)) for r in all_refs]
-    matched = [(r, s) for r, s in scored if s >= 1]
-    matched.sort(key=lambda x: x[1], reverse=True)
-    return [r for r, _ in matched]
-
-
-def no_match_guide(keywords):
-    kw_str = ", ".join(f'**{k}**' for k in keywords)
-    return f"""
-**{kw_str}** 키워드와 매칭되는 레퍼런스를 찾지 못했습니다.
-
-**이유:** unsection, httpster, cssdesignawards, interfaceingame은 최신 디자인을 큐레이션하는 갤러리 사이트입니다. 제목이 "Hero Section Design", "Studio Rebrand" 같은 형태라 컨셉 키워드('sci-fi', 'brutalism' 등)가 제목에 잘 등장하지 않습니다.
-
-**더 잘 찾으려면:**
-- 🔎 **키워드를 더 짧게** — `sci-fi game UI` → `game`, `sci-fi`, `UI` 처럼 단어 단위로
-- 🌐 **Pinterest만 켜고 시도** — Pinterest는 실제 키워드 검색이 되므로 가장 정확합니다
-- 🔤 **영어 단일 단어 사용** — `pink`, `dark`, `neon`, `brutal`, `retro`, `space` 등
-- 📌 **Dribbble/Behance 직접 방문** — 키워드 검색이 잘 되는 사이트입니다
-    """
-
-
 # ─── Streamlit 미리보기 ───────────────────────────────────────────────────────
+
+SITE_EMOJI = {
+    "behance.net": "🎨",
+    "interfaceingame.com": "🎮",
+    "pinterest.com": "📌",
+    "unsection.com": "🖼",
+    "httpster.net": "🌐",
+    "cssdesignawards.com": "🎖",
+}
 
 def show_preview(all_refs):
     sources = {}
     for ref in all_refs:
         sources.setdefault(ref["source"], []).append(ref)
-
-    site_emojis = {"unsection.com": "🖼", "interfaceingame.com": "🎮", "httpster.net": "🌐", "cssdesignawards.com": "🎖", "pinterest.com": "📌"}
-
     for source, refs in sources.items():
-        st.subheader(f"{site_emojis.get(source,'📎')} {source}")
+        st.subheader(f"{SITE_EMOJI.get(source,'📎')} {source}")
         cols = st.columns(4)
         for i, ref in enumerate(refs):
             with cols[i % 4]:
@@ -248,7 +251,9 @@ def show_preview(all_refs):
 # ─── Notion 저장 ─────────────────────────────────────────────────────────────
 
 def notion_headers():
-    return {"Authorization": f"Bearer {NOTION_TOKEN}", "Content-Type": "application/json", "Notion-Version": NOTION_VERSION}
+    return {"Authorization": f"Bearer {NOTION_TOKEN}",
+            "Content-Type": "application/json",
+            "Notion-Version": NOTION_VERSION}
 
 
 def build_blocks(keywords, all_refs):
@@ -261,16 +266,16 @@ def build_blocks(keywords, all_refs):
             "rich_text": [{"type": "text", "text": {"content": f"수집일: {timestamp}  |  {len(all_refs)}개"}, "annotations": {"color": "gray"}}]}},
         {"object": "block", "type": "divider", "divider": {}},
     ]
-    site_emojis = {"unsection.com": "🖼", "interfaceingame.com": "🎮", "httpster.net": "🌐", "cssdesignawards.com": "🎖", "pinterest.com": "📌"}
     sources = {}
     for ref in all_refs:
         sources.setdefault(ref["source"], []).append(ref)
     for source, refs in sources.items():
         blocks.append({"object": "block", "type": "heading_2", "heading_2": {
-            "rich_text": [{"type": "text", "text": {"content": f"{site_emojis.get(source,'📎')}  {source}"}}]}})
+            "rich_text": [{"type": "text", "text": {"content": f"{SITE_EMOJI.get(source,'📎')}  {source}"}}]}})
         for ref in refs:
             if ref.get("image_url") and ref["image_url"].startswith("http"):
-                blocks.append({"object": "block", "type": "image", "image": {"type": "external", "external": {"url": ref["image_url"]}}})
+                blocks.append({"object": "block", "type": "image",
+                                "image": {"type": "external", "external": {"url": ref["image_url"]}}})
             blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": ref["url"]}})
         blocks.append({"object": "block", "type": "divider", "divider": {}})
     return blocks
@@ -291,7 +296,8 @@ def save_to_notion(keywords, all_refs):
         return None, r.json().get("message", "오류")
     page = r.json()
     for batch in [blocks[i:i+100] for i in range(100, len(blocks), 100)]:
-        requests.patch(f"https://api.notion.com/v1/blocks/{page['id']}/children", headers=notion_headers(), json={"children": batch})
+        requests.patch(f"https://api.notion.com/v1/blocks/{page['id']}/children",
+                       headers=notion_headers(), json={"children": batch})
         time.sleep(0.3)
     return page.get("url", ""), None
 
@@ -305,29 +311,23 @@ if run:
         keywords = [k.strip() for k in keyword_input.replace(",", " ").split() if k.strip()]
         all_refs = []
 
-        selected = [
-            (use_unsection,      scrape_unsection,      "unsection.com"),
-            (use_interfaceingame,scrape_interfaceingame,"interfaceingame.com"),
-            (use_httpster,       scrape_httpster,       "httpster.net"),
-            (use_css,            scrape_cssdesignawards,"cssdesignawards.com"),
-        ]
-        total = sum(v for v, _, _ in selected) + (1 if use_pinterest else 0)
+        tasks = []
+        if use_behance:        tasks.append(("behance.net",         lambda: scrape_behance(keywords)))
+        if use_interfaceingame:tasks.append(("interfaceingame.com", lambda: scrape_interfaceingame(keywords)))
+        if use_pinterest:      tasks.append(("pinterest.com",       lambda: scrape_pinterest(keywords)))
+        if use_latest:
+            tasks.append(("unsection.com",      scrape_unsection))
+            tasks.append(("httpster.net",        scrape_httpster))
+            tasks.append(("cssdesignawards.com", scrape_cssdesignawards))
+
+        total = len(tasks)
         done = 0
         progress = st.progress(0)
         status = st.empty()
 
-        for enabled, fn, name in selected:
-            if not enabled:
-                continue
+        for name, fn in tasks:
             status.text(f"📡 {name} 수집 중...")
             refs = fn()
-            all_refs.extend(refs)
-            done += 1
-            progress.progress(done / total)
-
-        if use_pinterest:
-            status.text("📡 pinterest.com 수집 중...")
-            refs = scrape_pinterest(keywords)
             all_refs.extend(refs)
             done += 1
             progress.progress(done / total)
@@ -338,22 +338,13 @@ if run:
         if not all_refs:
             st.warning("사이트에서 수집된 항목이 없습니다. 잠시 후 다시 시도해주세요.")
         else:
-            filtered = filter_and_sort(all_refs, keywords)
+            st.success(f"✅ **{len(all_refs)}개** 레퍼런스 수집 완료")
+            st.markdown("## 📋 미리보기")
+            show_preview(all_refs)
 
-            if filtered:
-                st.success(f"✅ 전체 **{len(all_refs)}개** 중 키워드 매칭 **{len(filtered)}개** 표시")
-                st.markdown("## 📋 미리보기")
-                show_preview(filtered)
-            else:
-                st.warning(no_match_guide(keywords))
-                with st.expander("📋 키워드 무관 전체 결과 보기"):
-                    show_preview(all_refs)
-
-            # ── Notion 저장
             if NOTION_TOKEN:
-                save_target = filtered if filtered else all_refs
                 with st.spinner("Notion에 저장 중..."):
-                    notion_url, error = save_to_notion(keywords, save_target)
+                    notion_url, error = save_to_notion(keywords, all_refs)
                 if notion_url:
                     st.link_button("📖 Notion에서 보기", notion_url, use_container_width=True)
                 else:
