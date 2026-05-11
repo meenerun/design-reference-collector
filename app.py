@@ -13,6 +13,13 @@ NOTION_VERSION = "2022-06-28"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
 }
 
 st.set_page_config(page_title="Design Reference Collector", page_icon="🎨", layout="wide")
@@ -163,7 +170,12 @@ def scrape_interfaceingame(keywords=None):
                 title_tag = art.find(["h1","h2","h3"])
                 title = title_tag.get_text(strip=True) if title_tag else a["href"].split("/")[-2]
                 img = art.find("img")
-                img_src = img.get("src","") if img else None
+                # lazy-load: 실제 이미지는 data-src에 있음
+                img_src = None
+                if img:
+                    img_src = img.get("data-src") or img.get("src","")
+                    if img_src and img_src.startswith("data:"):
+                        img_src = None  # base64 placeholder 제거
                 extra = art.get_text(separator=" ", strip=True)
                 refs.append({
                     "source": "interfaceingame.com",
@@ -373,6 +385,7 @@ if run:
         st.error("키워드를 입력해주세요.")
     else:
         keywords = [k.strip() for k in kw_raw.replace(",", " ").split() if k.strip()]
+        st.info(f"🔍 검색 키워드: **{' / '.join(keywords)}**")
         all_refs = []
 
         tasks = []
@@ -399,10 +412,16 @@ if run:
         progress.empty()
         status.empty()
 
+        # 소스별 수집 결과 요약
+        source_counts = {}
+        for ref in all_refs:
+            source_counts[ref["source"]] = source_counts.get(ref["source"], 0) + 1
+        summary = "  |  ".join(f"{s}: {n}개" for s, n in source_counts.items())
+
         if not all_refs:
             st.warning("사이트에서 수집된 항목이 없습니다. 잠시 후 다시 시도해주세요.")
         else:
-            st.success(f"✅ **{len(all_refs)}개** 레퍼런스 수집 완료")
+            st.success(f"✅ **{len(all_refs)}개** 수집 완료  ({summary})")
             st.markdown("## 📋 미리보기")
             show_preview(all_refs)
 
