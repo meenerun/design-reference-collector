@@ -21,8 +21,8 @@ st.caption("기업 교육게임 그래픽 · UI 레퍼런스 수집기")
 st.divider()
 
 # ─── 세션 상태 초기화 ─────────────────────────────────────────────────────────
-if "kw_value" not in st.session_state:
-    st.session_state.kw_value = ""
+if "kw_input" not in st.session_state:
+    st.session_state.kw_input = ""
 if "active_preset" not in st.session_state:
     st.session_state.active_preset = ""
 
@@ -67,22 +67,23 @@ with left_col:
             is_active = st.session_state.active_preset == f"{category}_{label}"
             btn_label = f"✅ {label}" if is_active else label
             if btn_cols[idx].button(btn_label, key=f"p_{category}_{label}", use_container_width=True):
-                st.session_state.kw_value = kw
+                st.session_state.kw_input = kw          # key= 방식으로 직접 업데이트
                 st.session_state.active_preset = f"{category}_{label}"
                 st.rerun()
 
 with right_col:
     st.markdown("**컨셉 키워드**")
-    keyword_input = st.text_input(
+
+    def _on_kw_change():
+        st.session_state.active_preset = ""  # 직접 타이핑 시 프리셋 선택 해제
+
+    st.text_input(
         "컨셉 키워드",
-        value=st.session_state.kw_value,
+        key="kw_input",                       # value= 대신 key= 사용 → 세션 상태로 제어
         placeholder="예: gamification dashboard dark UI",
         label_visibility="collapsed",
+        on_change=_on_kw_change,
     )
-    # 직접 타이핑 시 프리셋 선택 해제
-    if keyword_input != st.session_state.kw_value:
-        st.session_state.kw_value = keyword_input
-        st.session_state.active_preset = ""
 
     col1, col2 = st.columns(2)
     col3, col4 = st.columns(2)
@@ -367,10 +368,11 @@ def save_to_notion(keywords, all_refs):
 # ─── 실행 ─────────────────────────────────────────────────────────────────────
 
 if run:
-    if not keyword_input.strip():
+    kw_raw = st.session_state.get("kw_input", "")
+    if not kw_raw.strip():
         st.error("키워드를 입력해주세요.")
     else:
-        keywords = [k.strip() for k in keyword_input.replace(",", " ").split() if k.strip()]
+        keywords = [k.strip() for k in kw_raw.replace(",", " ").split() if k.strip()]
         all_refs = []
 
         tasks = []
